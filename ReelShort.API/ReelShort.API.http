@@ -1,0 +1,6 @@
+@ReelShort.API_HostAddress = http://localhost:5234
+
+GET {{ReelShort.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

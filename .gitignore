@@ -1,0 +1,13 @@
+# Ignore .NET build folders
+bin/
+obj/
+
+# Ignore configuration files containing sensitive passwords
+appsettings.Development.json
+secrets.json
+
+# Ignore Rider/Visual Studio directories
+.idea/
+.vs/
+*.user
+*.suo

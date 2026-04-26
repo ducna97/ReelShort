@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="ReelShort.API/ReelShort.API.csproj" />
+  <Project Path="ReelShort.Application/ReelShort.Application.csproj" />
+  <Project Path="ReelShort.Domain/ReelShort.Domain.csproj" />
+  <Project Path="ReelShort.Infrastructure/ReelShort.Infrastructure.csproj" />
+</Solution>
