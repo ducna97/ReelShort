@@ -12,12 +12,15 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
 
         builder.HasKey(x => x.Id);
 
-        builder.Property(x => x.Token)
+        builder.Property(x => x.TokenHash)
             .IsRequired()
-            .HasMaxLength(500);
+            .HasMaxLength(64);
 
-        builder.HasIndex(x => x.Token)
+        builder.HasIndex(x => x.TokenHash)
             .IsUnique();
+        
+        builder.Property(x => x.ReplacedByTokenHash)
+            .HasMaxLength(64);
 
         builder.Property(x => x.ExpiresAt)
             .IsRequired();

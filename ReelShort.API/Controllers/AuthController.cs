@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using ReelShort.Application.Common.Configs;
 using ReelShort.Application.DTOs.Auth;
 using ReelShort.Application.Interfaces;
+using Microsoft.Extensions.Options;
 
 namespace ReelShort.API.Controllers;
 
@@ -16,11 +17,11 @@ public class AuthController : BaseControllerAPI
     
     public AuthController(IAuthService authService,
         IHttpClientFactory httpClientFactory,
-        ExternalLoginSettings loginSettings)
+        IOptions<ExternalLoginSettings> loginSettings)
     {
         _authService = authService;
         _httpClientFactory = httpClientFactory;
-        _loginSettings = loginSettings;
+        _loginSettings = loginSettings.Value;
     }
     
     [HttpPost("register")]
@@ -53,7 +54,7 @@ public class AuthController : BaseControllerAPI
             return BadRequestResponse("Access token is required for logout");
         }
 
-        await _authService.LogoutAsync(accessToken, request?.RefreshToken);
+        await _authService.LogoutAsync(accessToken, CurrentUserId, request?.RefreshToken);
 
         Logger.LogInformation("User logout successful.");
         return SuccessResponse<object?>(null, "Logout successful");

@@ -1,6 +1,6 @@
 namespace ReelShort.Domain.Enums;
 
-public enum VideoStatus
+public enum VideoStatus : byte
 {
     Public = 0,
     Private = 1,

@@ -232,16 +232,17 @@ namespace ReelShort.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
-                    b.Property<string>("ReplacedByToken")
-                        .HasColumnType("text");
+                    b.Property<string>("ReplacedByTokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Token")
+                    b.Property<string>("TokenHash")
                         .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -255,7 +256,7 @@ namespace ReelShort.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Token")
+                    b.HasIndex("TokenHash")
                         .IsUnique();
 
                     b.HasIndex("UserId");
@@ -508,17 +509,6 @@ namespace ReelShort.Infrastructure.Migrations
                     b.Navigation("Video");
                 });
 
-            modelBuilder.Entity("ReelShort.Domain.Entities.RefreshToken", b =>
-                {
-                    b.HasOne("ReelShort.Domain.Entities.User", "User")
-                        .WithMany("RefreshTokens")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("ReelShort.Domain.Entities.Video", b =>
                 {
                     b.HasOne("ReelShort.Domain.Entities.Music", "Music")
@@ -582,8 +572,6 @@ namespace ReelShort.Infrastructure.Migrations
                     b.Navigation("Followings");
 
                     b.Navigation("Likes");
-
-                    b.Navigation("RefreshTokens");
 
                     b.Navigation("Videos");
                 });

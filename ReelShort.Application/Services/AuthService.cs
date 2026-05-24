@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using ReelShort.Application.DTOs.Auth;
 using ReelShort.Application.Interfaces;
@@ -66,9 +68,19 @@ public class AuthService : IAuthService
             await _userRepository.AddAsync(user);
             await _userRepository.SaveChangesAsync();
             
+            // Generate JWT token
+            var token = _jwtService.GenerateToken(user.Id, user.Email, user.Username);
+            
             _logger.LogInformation("[RegisterAsync] End to register user with email: {Email}.", request.Email);
 
-            return await BuildAuthResponseAsync(user);
+            return new AuthResponse
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                AvatarUrl = user.AvatarUrl ?? string.Empty,
+                Token = token,
+            };
         }
         catch (Exception ex)
         {
@@ -94,8 +106,8 @@ public class AuthService : IAuthService
             // Verify password
             if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
-                _logger.LogError($"[LoginAsync] Password {request.Password} not match.");
-                throw new Exception("[LoginAsync] Invalid password.");
+                _logger.LogWarning("[LoginAsync] Invalid credentials for email: {Email}.", request.Email);
+                throw new Exception("[LoginAsync] Invalid credentials for email.");
             }
 
             _logger.LogInformation("[LoginAsync] End to login with email: {Email}.", request.Email);
@@ -109,7 +121,7 @@ public class AuthService : IAuthService
         }
     }
     
-    public async Task LogoutAsync(string accessToken, string? refreshToken = null)
+    public async Task LogoutAsync(string accessToken, Guid currentUserId, string? refreshToken = null)
     {
         try
         {
@@ -126,8 +138,9 @@ public class AuthService : IAuthService
 
             if (!string.IsNullOrEmpty(refreshToken))
             {
-                var existingRefreshToken = await _refreshTokenRepository
-                    .FirstOrDefaultAsync(x => x.Token == refreshToken, true);
+                var refreshTokenHash = HashRefreshToken(refreshToken);
+                var existingRefreshToken = await _refreshTokenRepository.FirstOrDefaultAsync(x => x.TokenHash == refreshTokenHash
+                    && x.UserId == currentUserId, true);
 
                 if (existingRefreshToken != null && !existingRefreshToken.IsRevoked)
                 {
@@ -192,7 +205,8 @@ public class AuthService : IAuthService
         {
             _logger.LogInformation("[RefreshTokenAsync] Start refreshing token.");
 
-            var existingRefreshToken = await _refreshTokenRepository.FirstOrDefaultAsync(x => x.Token == refreshToken, true);
+            var incomingTokenHash = HashRefreshToken(refreshToken);
+            var existingRefreshToken = await _refreshTokenRepository.FirstOrDefaultAsync(x => x.TokenHash == incomingTokenHash, true);
 
             if (existingRefreshToken == null)
             {
@@ -213,23 +227,24 @@ public class AuthService : IAuthService
                 throw new Exception("User not found.");
             }
 
-            // revoke old refresh token
+            var newRawRefreshToken = GenerateRefreshToken();
+            var newRefreshTokenHash = HashRefreshToken(newRawRefreshToken);
+
+            // Revoke token cũ
             existingRefreshToken.IsRevoked = true;
             existingRefreshToken.RevokedAt = DateTime.UtcNow;
-
-            var newRefreshTokenValue = GenerateRefreshToken();
-            existingRefreshToken.ReplacedByToken = newRefreshTokenValue;
+            existingRefreshToken.ReplacedByTokenHash = newRefreshTokenHash;
             existingRefreshToken.UpdatedAt = DateTime.UtcNow;
             existingRefreshToken.UpdatedBy = user.Username;
 
             await _refreshTokenRepository.UpdateAsync(existingRefreshToken);
 
-            // create new refresh token
+            // Lưu hash của token mới
             var newRefreshToken = new RefreshToken
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
-                Token = newRefreshTokenValue,
+                TokenHash = newRefreshTokenHash,
                 ExpiresAt = DateTime.UtcNow.AddDays(7),
                 IsRevoked = false,
                 CreatedAt = DateTime.UtcNow,
@@ -252,7 +267,7 @@ public class AuthService : IAuthService
                 Email = user.Email,
                 AvatarUrl = user.AvatarUrl ?? string.Empty,
                 AccessToken = accessToken,
-                RefreshToken = newRefreshTokenValue,
+                RefreshToken = newRawRefreshToken,
                 RefreshTokenExpiryTime = newRefreshToken.ExpiresAt
             };
         }
@@ -265,24 +280,36 @@ public class AuthService : IAuthService
     #endregion Main methods
 
     #region Private methods
-    private string GenerateRefreshToken()
+    private static string GenerateRefreshToken()
     {
-        return Convert.ToBase64String(Guid.NewGuid().ToByteArray()) +
-               Convert.ToBase64String(Guid.NewGuid().ToByteArray());
+        var randomBytes = RandomNumberGenerator.GetBytes(64);
+        return Convert.ToBase64String(randomBytes);
+    }
+    
+    private static string HashRefreshToken(string refreshToken)
+    {
+        var tokenBytes = Encoding.UTF8.GetBytes(refreshToken);
+        var hashBytes = SHA256.HashData(tokenBytes);
+
+        return Convert.ToHexString(hashBytes);
     }
     
     private async Task<AuthResponse> BuildAuthResponseAsync(User user)
     {
         var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.Username);
 
-        var refreshTokenValue = GenerateRefreshToken();
+        // Token gốc chỉ trả về client
+        var rawRefreshToken = GenerateRefreshToken();
+        
+        // Hash mới được lưu DB
+        var refreshTokenHash = HashRefreshToken(rawRefreshToken);
         var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
 
         var refreshToken = new RefreshToken
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
-            Token = refreshTokenValue,
+            TokenHash = refreshTokenHash,
             ExpiresAt = refreshTokenExpiry,
             IsRevoked = false,
             CreatedAt = DateTime.UtcNow,
@@ -301,7 +328,7 @@ public class AuthService : IAuthService
             Email = user.Email,
             AvatarUrl = user.AvatarUrl ?? string.Empty,
             AccessToken = accessToken,
-            RefreshToken = refreshTokenValue,
+            RefreshToken = rawRefreshToken,
             RefreshTokenExpiryTime = refreshTokenExpiry
         };
     }
