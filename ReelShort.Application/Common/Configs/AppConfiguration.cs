@@ -4,6 +4,7 @@ public class AppConfiguration
 {
     public JwtSettings Jwt { get; set; } = null!;
     public MediaSettings Media { get; set; } = null!;
+    public ExternalLoginSettings LoginSettings { get; set; } = null!;
 }
 
 public class JwtSettings
@@ -22,4 +23,22 @@ public class MediaSettings
     public string ApiSecret { get; set; } = string.Empty;
     public string VideoFolder { get; set; } = "reelshort/videos";
     public string AvatarFolder { get; set; } = "reelshort/avatars";
+}
+
+public class ExternalLoginSettings
+{
+    public GoogleSettings Google { get; set; } = null!;
+    public FacebookSettings Facebook { get; set; } = null!;
+}
+
+public class GoogleSettings
+{
+    public string ClientId { get; set; } = string.Empty;
+    public string ClientSecret { get; set; } = string.Empty;
+}
+
+public class FacebookSettings
+{
+    public string AppId { get; set; } = string.Empty;
+    public string AppSecret { get; set; } = string.Empty;
 }

@@ -18,9 +18,9 @@ public class Repository<T> : IRepository<T> where T : class
 
     #region Main method
 
-    public async Task<T?> GetByIdAsync(Guid id)
+    public async Task<T?> GetByIdAsync(Guid id, bool isTracking = false)
     {
-        return await _dbSet.FindAsync(id);
+        return await GetQuery(isTracking).FirstOrDefaultAsync(e => EF.Property<Guid>(e, "Id") == id);
     }
 
     public async Task<List<T>> GetAllAsync(bool isTracking = false)

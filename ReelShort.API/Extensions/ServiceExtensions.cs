@@ -22,6 +22,18 @@ public static class ServiceExtensions
         {
             var connectionString = configuration.GetConnectionString("DefaultConnection");
             options.UseNpgsql(connectionString);
+            
+            // Key lazy loading và eager loading
+            // options.UseLazyLoadingProxies().UseNpgsql(connectionString);
+            
+            // options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+            
+            // options.UseNpgsql(connectionString)
+            //     .LogTo(Console.WriteLine, LogLevel.Information) // Log ra màn hình Console
+            //     .EnableSensitiveDataLogging() // Hiển thị cả giá trị tham số (ví dụ: Id=5)
+            //     .EnableDetailedErrors();     // Hiển thị chi tiết lỗi nếu có
+            // EnableSensitiveDataLogging: Mặc định EF Core sẽ ẩn các giá trị nhạy cảm (như mật khẩu, email) trong log và thay bằng ?.
+            // Bật cái này giúp bạn thấy dữ liệu thật đang được gửi đi. Lưu ý: Không bật cái này ở môi trường Production.
         });
 
         // Configure CORS
@@ -37,10 +49,13 @@ public static class ServiceExtensions
         });
         
         services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
+        services.Configure<ExternalLoginSettings>(configuration.GetSection("ExternalLoginSettings"));
         
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+        
+        services.AddHttpClient();
         
         // Register Redis
         var redisConnection = configuration.GetConnectionString("RedisConnection") ?? "localhost:6379";

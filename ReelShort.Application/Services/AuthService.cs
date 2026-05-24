@@ -9,20 +9,24 @@ public class AuthService : IAuthService
 {
     private readonly ILogger<AuthService> _logger;
     private readonly IRepository<User> _userRepository;
+    private readonly IRepository<RefreshToken> _refreshTokenRepository;
     private readonly IJwtService _jwtService;
     private readonly ITokenBlacklistService _tokenBlacklistService;
     
     public AuthService(ILogger<AuthService> logger,
         IRepository<User> userRepository,
+        IRepository<RefreshToken> refreshTokenRepository,
         IJwtService jwtService,
         ITokenBlacklistService tokenBlacklistService)
     {
         _logger = logger;
         _userRepository = userRepository;
+        _refreshTokenRepository = refreshTokenRepository;
         _jwtService = jwtService;
         _tokenBlacklistService = tokenBlacklistService;
     }
     
+    #region Main methods
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request)
     {
         try
@@ -62,19 +66,9 @@ public class AuthService : IAuthService
             await _userRepository.AddAsync(user);
             await _userRepository.SaveChangesAsync();
             
-            // Generate JWT token
-            var token = _jwtService.GenerateToken(user.Id, user.Email, user.Username);
-            
             _logger.LogInformation("[RegisterAsync] End to register user with email: {Email}.", request.Email);
 
-            return new AuthResponse
-            {
-                Id = user.Id,
-                Username = user.Username,
-                Email = user.Email,
-                AvatarUrl = user.AvatarUrl ?? string.Empty,
-                Token = token,
-            };
+            return await BuildAuthResponseAsync(user);
         }
         catch (Exception ex)
         {
@@ -104,19 +98,9 @@ public class AuthService : IAuthService
                 throw new Exception("[LoginAsync] Invalid password.");
             }
 
-            // Generate token
-            var token = _jwtService.GenerateToken(user.Id, user.Email, user.Username);
-
             _logger.LogInformation("[LoginAsync] End to login with email: {Email}.", request.Email);
             
-            return new AuthResponse
-            {
-                Id = user.Id,
-                Username = user.Username,
-                Email = user.Email,
-                AvatarUrl = user.AvatarUrl ?? string.Empty,
-                Token = token
-            };
+            return await BuildAuthResponseAsync(user);
         }
         catch (Exception ex)
         {
@@ -125,27 +109,201 @@ public class AuthService : IAuthService
         }
     }
     
-    public async Task LogoutAsync(string token)
+    public async Task LogoutAsync(string accessToken, string? refreshToken = null)
     {
         try
         {
-            _logger.LogInformation("[LogoutAsync] Start to logout.");
-            
+            _logger.LogInformation("[LogoutAsync] Start logout.");
+
             var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-            var jwtToken = handler.ReadJwtToken(token);
+            var jwtToken = handler.ReadJwtToken(accessToken);
             var expiry = jwtToken.ValidTo - DateTime.UtcNow;
 
             if (expiry > TimeSpan.Zero)
             {
-                await _tokenBlacklistService.BlacklistTokenAsync(token, expiry);
+                await _tokenBlacklistService.BlacklistTokenAsync(accessToken, expiry);
             }
-            
-            _logger.LogInformation("[LogoutAsync] End to logout.");
+
+            if (!string.IsNullOrEmpty(refreshToken))
+            {
+                var existingRefreshToken = await _refreshTokenRepository
+                    .FirstOrDefaultAsync(x => x.Token == refreshToken, true);
+
+                if (existingRefreshToken != null && !existingRefreshToken.IsRevoked)
+                {
+                    existingRefreshToken.IsRevoked = true;
+                    existingRefreshToken.RevokedAt = DateTime.UtcNow;
+                    existingRefreshToken.UpdatedAt = DateTime.UtcNow;
+                    await _refreshTokenRepository.UpdateAsync(existingRefreshToken);
+                    await _refreshTokenRepository.SaveChangesAsync();
+                }
+            }
+
+            _logger.LogInformation("[LogoutAsync] Logout successful.");
         }
         catch (Exception ex)
         {
-            _logger.LogError($"[LogoutAsync] Error: {ex.Message}", ex);
-            throw new Exception($"[LogoutAsync] An error occurred during logout: {ex.Message}");
+            _logger.LogError(ex, "[LogoutAsync] Error: {Message}", ex.Message);
+            throw new Exception($"[LogoutAsync] {ex.Message}");
         }
     }
+
+    public async Task<AuthResponse> ExternalLoginAsync(string email, string name, string? avatarUrl, string provider)
+    {
+        try
+        {
+            _logger.LogInformation($"[ExternalLoginAsync] Start to login with email: {email}, provider: {provider}.");
+            var user = await _userRepository.FirstOrDefaultAsync(u => u.Email == email);
+            if (user == null)
+            {
+                user = new User
+                {
+                    Id = Guid.NewGuid(),
+                    Username = email.Split('@')[0] + "_" + Guid.NewGuid().ToString("N")[..4],
+                    Email = email,
+                    DisplayName = name,
+                    AvatarUrl = avatarUrl,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    CreatedBy = provider,
+                    UpdatedBy = provider,
+                };
+                
+                await _userRepository.AddAsync(user);
+                await _userRepository.SaveChangesAsync();
+                
+                _logger.LogInformation("[ExternalLoginAsync] Created new user from {Provider}: {UserId}", provider, user.Id);
+            }
+
+            _logger.LogInformation($"[ExternalLoginAsync] End to login with email: {email}, provider: {provider}.");
+            
+            return await BuildAuthResponseAsync(user);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"[ExternalLoginAsync] Error: {ex.Message}", ex);
+            throw new Exception($"[ExternalLoginAsync] An error occurred during external login: {ex.Message}");
+        }
+    }
+    
+    public async Task<AuthResponse> RefreshTokenAsync(string refreshToken)
+    {
+        try
+        {
+            _logger.LogInformation("[RefreshTokenAsync] Start refreshing token.");
+
+            var existingRefreshToken = await _refreshTokenRepository.FirstOrDefaultAsync(x => x.Token == refreshToken, true);
+
+            if (existingRefreshToken == null)
+            {
+                _logger.LogError("[RefreshTokenAsync] Refresh token not found.");
+                throw new Exception("Refresh token not found.");
+            }
+
+            if (!existingRefreshToken.IsActive)
+            {
+                _logger.LogError("[RefreshTokenAsync] Refresh token is expired or revoked.");
+                throw new Exception("Refresh token is expired or revoked.");
+            }
+
+            var user = await _userRepository.GetByIdAsync(existingRefreshToken.UserId);
+            if (user == null)
+            {
+                _logger.LogError("[RefreshTokenAsync] User not found.");
+                throw new Exception("User not found.");
+            }
+
+            // revoke old refresh token
+            existingRefreshToken.IsRevoked = true;
+            existingRefreshToken.RevokedAt = DateTime.UtcNow;
+
+            var newRefreshTokenValue = GenerateRefreshToken();
+            existingRefreshToken.ReplacedByToken = newRefreshTokenValue;
+            existingRefreshToken.UpdatedAt = DateTime.UtcNow;
+            existingRefreshToken.UpdatedBy = user.Username;
+
+            await _refreshTokenRepository.UpdateAsync(existingRefreshToken);
+
+            // create new refresh token
+            var newRefreshToken = new RefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                Token = newRefreshTokenValue,
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
+                IsRevoked = false,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                CreatedBy = user.Username,
+                UpdatedBy = user.Username
+            };
+
+            await _refreshTokenRepository.AddAsync(newRefreshToken);
+            await _refreshTokenRepository.SaveChangesAsync();
+
+            var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.Username);
+
+            _logger.LogInformation("[RefreshTokenAsync] Token refreshed successfully for user: {UserId}", user.Id);
+
+            return new AuthResponse
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                AvatarUrl = user.AvatarUrl ?? string.Empty,
+                AccessToken = accessToken,
+                RefreshToken = newRefreshTokenValue,
+                RefreshTokenExpiryTime = newRefreshToken.ExpiresAt
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[RefreshTokenAsync] Error: {Message}", ex.Message);
+            throw new Exception($"[RefreshTokenAsync] {ex.Message}");
+        }
+    }
+    #endregion Main methods
+
+    #region Private methods
+    private string GenerateRefreshToken()
+    {
+        return Convert.ToBase64String(Guid.NewGuid().ToByteArray()) +
+               Convert.ToBase64String(Guid.NewGuid().ToByteArray());
+    }
+    
+    private async Task<AuthResponse> BuildAuthResponseAsync(User user)
+    {
+        var accessToken = _jwtService.GenerateToken(user.Id, user.Email, user.Username);
+
+        var refreshTokenValue = GenerateRefreshToken();
+        var refreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+
+        var refreshToken = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            Token = refreshTokenValue,
+            ExpiresAt = refreshTokenExpiry,
+            IsRevoked = false,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            CreatedBy = user.Username,
+            UpdatedBy = user.Username
+        };
+
+        await _refreshTokenRepository.AddAsync(refreshToken);
+        await _refreshTokenRepository.SaveChangesAsync();
+
+        return new AuthResponse
+        {
+            Id = user.Id,
+            Username = user.Username,
+            Email = user.Email,
+            AvatarUrl = user.AvatarUrl ?? string.Empty,
+            AccessToken = accessToken,
+            RefreshToken = refreshTokenValue,
+            RefreshTokenExpiryTime = refreshTokenExpiry
+        };
+    }
+    #endregion Private methods
 }

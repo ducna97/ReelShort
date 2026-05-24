@@ -22,4 +22,5 @@ public class User : BaseEntity
     public ICollection<Comment> Comments { get; set; } = new HashSet<Comment>();
     public ICollection<Follow> Followers { get; set; } = new List<Follow>();
     public ICollection<Follow> Followings { get; set; } = new List<Follow>();
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 }

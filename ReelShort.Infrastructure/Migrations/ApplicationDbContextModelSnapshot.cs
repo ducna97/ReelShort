@@ -211,6 +211,58 @@ namespace ReelShort.Infrastructure.Migrations
                     b.ToTable("Musics", (string)null);
                 });
 
+            modelBuilder.Entity("ReelShort.Domain.Entities.RefreshToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsRevoked")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("ReplacedByToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RefreshTokens", (string)null);
+                });
+
             modelBuilder.Entity("ReelShort.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -456,6 +508,17 @@ namespace ReelShort.Infrastructure.Migrations
                     b.Navigation("Video");
                 });
 
+            modelBuilder.Entity("ReelShort.Domain.Entities.RefreshToken", b =>
+                {
+                    b.HasOne("ReelShort.Domain.Entities.User", "User")
+                        .WithMany("RefreshTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ReelShort.Domain.Entities.Video", b =>
                 {
                     b.HasOne("ReelShort.Domain.Entities.Music", "Music")
@@ -519,6 +582,8 @@ namespace ReelShort.Infrastructure.Migrations
                     b.Navigation("Followings");
 
                     b.Navigation("Likes");
+
+                    b.Navigation("RefreshTokens");
 
                     b.Navigation("Videos");
                 });
