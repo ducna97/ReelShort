@@ -95,7 +95,7 @@ public class AuthController : BaseControllerAPI
         catch (InvalidJwtException ex)
         {
             Logger.LogWarning($"Invalid Google token, error: {ex.Message}");
-            return BadRequestResponse("Invalid Google token.");
+            return BadRequestResponse("Invalid Google token.", [ex.Message]);
         }
     }
     
