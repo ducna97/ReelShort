@@ -5,6 +5,7 @@ using ReelShort.Application.Common.Exceptions;
 using ReelShort.Application.DTOs.Auth;
 using ReelShort.Application.Interfaces;
 using Microsoft.Extensions.Options;
+using ReelShort.Domain.Enums;
 
 namespace ReelShort.API.Controllers;
 
@@ -83,7 +84,7 @@ public class AuthController : BaseControllerAPI
             Logger.LogInformation("Google login attempt.");
 
             var validator = HttpContext.RequestServices.GetRequiredService<IExternalAuthValidator>();
-            var identity = await validator.ValidateAsync("Google", request.AccessToken, cancellationToken);
+            var identity = await validator.ValidateAsync(ExternalAuthProvider.Google, request.AccessToken, cancellationToken);
             var result = await _authService.ExternalLoginAsync(identity);
 
             Logger.LogInformation("Google login successful for user {UserId}.", result.Id);
@@ -111,7 +112,7 @@ public class AuthController : BaseControllerAPI
             Logger.LogInformation("Facebook login attempt.");
 
             var validator = HttpContext.RequestServices.GetRequiredService<IExternalAuthValidator>();
-            var identity = await validator.ValidateAsync("Facebook", request.AccessToken, cancellationToken);
+            var identity = await validator.ValidateAsync(ExternalAuthProvider.Facebook, request.AccessToken, cancellationToken);
             var result = await _authService.ExternalLoginAsync(identity);
 
             Logger.LogInformation("Facebook login successful for user {UserId}.", result.Id);

@@ -1,6 +1,5 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text.Json.Serialization;
 using Google.Apis.Auth;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,6 +7,9 @@ using ReelShort.Application.Common.Configs;
 using ReelShort.Application.Common.Exceptions;
 using ReelShort.Application.DTOs.Auth;
 using ReelShort.Application.Interfaces;
+using ReelShort.Domain.Enums;
+using FacebookDebugTokenResponseModel = ReelShort.Infrastructure.Models.Facebook.FacebookDebugTokenResponse;
+using FacebookUserInfoModel = ReelShort.Infrastructure.Models.Facebook.FacebookUserInfo;
 
 namespace ReelShort.Infrastructure.Services;
 
@@ -27,7 +29,7 @@ public sealed class ExternalAuthValidator : IExternalAuthValidator
         _logger = logger;
     }
 
-    public Task<ValidatedExternalIdentity> ValidateAsync(string provider,
+    public Task<ValidatedExternalIdentity> ValidateAsync(ExternalAuthProvider provider,
         string accessToken,
         CancellationToken cancellationToken = default)
     {
@@ -36,10 +38,10 @@ public sealed class ExternalAuthValidator : IExternalAuthValidator
             throw new ExternalAuthException("Thiếu thông tin xác thực từ nhà cung cấp.");
         }
 
-        return provider.Trim().ToLowerInvariant() switch
+        return provider switch
         {
-            "google" => ValidateGoogleAsync(accessToken),
-            "facebook" => ValidateFacebookAsync(accessToken, cancellationToken),
+            ExternalAuthProvider.Google => ValidateGoogleAsync(accessToken),
+            ExternalAuthProvider.Facebook => ValidateFacebookAsync(accessToken, cancellationToken),
             _ => throw new ExternalAuthException("Nhà cung cấp đăng nhập không được hỗ trợ.")
         };
     }
@@ -94,7 +96,7 @@ public sealed class ExternalAuthValidator : IExternalAuthValidator
 
         try
         {
-            var debug = await _httpClient.GetFromJsonAsync<FacebookDebugTokenResponse>(
+            var debug = await _httpClient.GetFromJsonAsync<FacebookDebugTokenResponseModel>(
                 $"{version}/debug_token?input_token={inputToken}&access_token={appToken}",
                 cancellationToken);
             var data = debug?.Data;
@@ -121,7 +123,7 @@ public sealed class ExternalAuthValidator : IExternalAuthValidator
                 throw new ExternalAuthException("Không thể xác minh tài khoản Facebook.");
             }
 
-            var profile = await response.Content.ReadFromJsonAsync<FacebookUserInfo>(cancellationToken);
+            var profile = await response.Content.ReadFromJsonAsync<FacebookUserInfoModel>(cancellationToken);
             if (profile is null
                 || !string.Equals(profile.Id, data.UserId, StringComparison.Ordinal)
                 || string.IsNullOrWhiteSpace(profile.Email))
@@ -155,45 +157,4 @@ public sealed class ExternalAuthValidator : IExternalAuthValidator
     }
 
     private static bool IsExpired(long value, long now) => value > 0 && value <= now;
-
-    private sealed class FacebookDebugTokenResponse
-    {
-        public FacebookDebugTokenData? Data { get; init; }
-    }
-
-    private sealed class FacebookDebugTokenData
-    {
-        [JsonPropertyName("app_id")]
-        public string? AppId { get; init; }
-
-        [JsonPropertyName("is_valid")]
-        public bool IsValid { get; init; }
-
-        [JsonPropertyName("user_id")]
-        public string? UserId { get; init; }
-
-        [JsonPropertyName("expires_at")]
-        public long ExpiresAt { get; init; }
-
-        [JsonPropertyName("data_access_expires_at")]
-        public long DataAccessExpiresAt { get; init; }
-    }
-
-    private sealed class FacebookUserInfo
-    {
-        public string? Id { get; init; }
-        public string? Name { get; init; }
-        public string? Email { get; init; }
-        public FacebookPicture? Picture { get; init; }
-    }
-
-    private sealed class FacebookPicture
-    {
-        public FacebookPictureData? Data { get; init; }
-    }
-
-    private sealed class FacebookPictureData
-    {
-        public string? Url { get; init; }
-    }
 }
