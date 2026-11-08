@@ -11,3 +11,9 @@ secrets.json
 .vs/
 *.user
 *.suo
+
+# Ignore frontend dependencies, build output, and local environment overrides
+ReelShort.Web/node_modules/
+ReelShort.Web/dist/
+ReelShort.Web/.env.local
+ReelShort.Web/.env.*.local
