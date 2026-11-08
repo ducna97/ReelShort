@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ReelShort.API.Middlewares;
 
@@ -8,6 +9,16 @@ public class RequestResponseMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<RequestResponseMiddleware> _logger;
+    private static readonly HashSet<string> SensitiveFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "password",
+        "confirmPassword",
+        "token",
+        "accessToken",
+        "refreshToken",
+        "idToken",
+        "authorization"
+    };
     
     public RequestResponseMiddleware(RequestDelegate next, ILogger<RequestResponseMiddleware> logger)
     {
@@ -23,11 +34,12 @@ public class RequestResponseMiddleware
         // --- LOG REQUEST ---
         var method = context.Request.Method;
         var path = context.Request.Path + context.Request.QueryString;
+        var isSensitiveAuthPath = context.Request.Path.StartsWithSegments("/api/auth");
         _logger.LogInformation("[{RequestId}] ▶ {Method} {Path}", requestId, method, path);
         
         // Read request body (if any)
         context.Request.EnableBuffering();
-        if (context.Request.ContentLength > 0)
+        if (!isSensitiveAuthPath && context.Request.ContentLength > 0)
         {
             context.Request.Body.Position = 0;
             using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
@@ -36,7 +48,7 @@ public class RequestResponseMiddleware
 
             if (!string.IsNullOrWhiteSpace(body))
             {
-                _logger.LogInformation("[{RequestId}] Body: {Body}", requestId, body);
+                _logger.LogInformation("[{RequestId}] Body: {Body}", requestId, SanitizePayload(body));
             }
         }
         
@@ -59,6 +71,10 @@ public class RequestResponseMiddleware
 
             _logger.LogInformation("[{RequestId}] ◀ {StatusCode} ({Elapsed}ms)",
                 requestId, statusCode, stopwatch.ElapsedMilliseconds);
+            if (!isSensitiveAuthPath && !string.IsNullOrWhiteSpace(responseText))
+            {
+                _logger.LogInformation("[{RequestId}] Response: {Body}", requestId, SanitizePayload(responseText));
+            }
 
             // Copy the response back to the client
             await responseBody.CopyToAsync(originalBodyStream);
@@ -90,6 +106,63 @@ public class RequestResponseMiddleware
             });
 
             await context.Response.WriteAsync(json);
+        }
+    }
+
+    private static string SanitizePayload(string payload)
+    {
+        try
+        {
+            var node = JsonNode.Parse(payload);
+            if (node == null)
+            {
+                return payload;
+            }
+
+            RedactNode(node);
+            return node.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = false
+            });
+        }
+        catch (JsonException)
+        {
+            return payload;
+        }
+    }
+
+    private static void RedactNode(JsonNode node)
+    {
+        if (node is JsonObject jsonObject)
+        {
+            foreach (var item in jsonObject.ToList())
+            {
+                if (item.Value == null)
+                {
+                    continue;
+                }
+
+                if (SensitiveFields.Contains(item.Key))
+                {
+                    jsonObject[item.Key] = "***REDACTED***";
+                    continue;
+                }
+
+                RedactNode(item.Value);
+            }
+
+            return;
+        }
+
+        if (node is JsonArray jsonArray)
+        {
+            foreach (var item in jsonArray)
+            {
+                if (item != null)
+                {
+                    RedactNode(item);
+                }
+            }
         }
     }
 }
