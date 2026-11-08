@@ -8,6 +8,6 @@ public interface IAuthService
     Task<AuthResponse> RegisterAsync(RegisterRequest request);
     Task<AuthResponse> LoginAsync(LoginRequest request);
     Task LogoutAsync(string accessToken, Guid currentUserId, string? refreshToken = null);
-    Task<AuthResponse> ExternalLoginAsync(string email, string name, string? avatarUrl, string provider);
+    Task<AuthResponse> ExternalLoginAsync(ValidatedExternalIdentity identity);
     Task<AuthResponse> RefreshTokenAsync(string refreshToken);
 }

@@ -2,9 +2,9 @@ namespace ReelShort.Application.Common.Configs;
 
 public class AppConfiguration
 {
-    public JwtSettings Jwt { get; set; } = null!;
-    public MediaSettings Media { get; set; } = null!;
-    public ExternalLoginSettings LoginSettings { get; set; } = null!;
+    public JwtSettings Jwt { get; set; } = new();
+    public MediaSettings Media { get; set; } = new();
+    public ExternalLoginSettings LoginSettings { get; set; } = new();
 }
 
 public class JwtSettings
@@ -27,8 +27,8 @@ public class MediaSettings
 
 public class ExternalLoginSettings
 {
-    public GoogleSettings Google { get; set; } = null!;
-    public FacebookSettings Facebook { get; set; } = null!;
+    public GoogleSettings Google { get; set; } = new();
+    public FacebookSettings Facebook { get; set; } = new();
 }
 
 public class GoogleSettings
@@ -41,4 +41,5 @@ public class FacebookSettings
 {
     public string AppId { get; set; } = string.Empty;
     public string AppSecret { get; set; } = string.Empty;
+    public string GraphApiVersion { get; set; } = "v26.0";
 }

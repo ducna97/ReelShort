@@ -13,12 +13,17 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         
         builder.HasIndex(u => u.Username).IsUnique();
         builder.HasIndex(u => u.Email).IsUnique();
+        builder.HasIndex(u => new { u.ExternalProvider, u.ExternalSubject })
+            .IsUnique()
+            .HasFilter("\"ExternalProvider\" IS NOT NULL AND \"ExternalSubject\" IS NOT NULL");
         
         builder.Property(u => u.Username).IsRequired().HasMaxLength(ColumnLengths.MaxUsernameLength);
         builder.Property(u => u.Email).IsRequired().HasMaxLength(ColumnLengths.MaxEmailLength);
         builder.Property(u => u.DisplayName).HasMaxLength(ColumnLengths.MaxNameLength);
         builder.Property(u => u.PasswordHash).IsRequired();
         builder.Property(u => u.Bio).HasMaxLength(500);
+        builder.Property(u => u.ExternalProvider).HasMaxLength(32);
+        builder.Property(u => u.ExternalSubject).HasMaxLength(255);
         
         builder.Property(u => u.FollowerCount).HasDefaultValue(0);
         builder.Property(u => u.FollowingCount).HasDefaultValue(0);

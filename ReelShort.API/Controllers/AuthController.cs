@@ -1,7 +1,7 @@
-using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ReelShort.Application.Common.Configs;
+using ReelShort.Application.Common.Exceptions;
 using ReelShort.Application.DTOs.Auth;
 using ReelShort.Application.Interfaces;
 using Microsoft.Extensions.Options;
@@ -36,10 +36,23 @@ public class AuthController : BaseControllerAPI
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest request)
     {
-        Logger.LogInformation($"User login attempt, email: {request.Email}.");
-        var result = await _authService.LoginAsync(request);
-        Logger.LogInformation($"User login successful, email: {request.Email}.");
-        return SuccessResponse(result, "Login successful");
+        try
+        {
+            Logger.LogInformation($"User login attempt, email: {request.Email}.");
+            var result = await _authService.LoginAsync(request);
+            Logger.LogInformation($"User login successful, email: {request.Email}.");
+            return SuccessResponse(result, "Login successful");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogWarning(ex, "Password login is not available for email: {Email}.", request.Email);
+            return BadRequestResponse("Tài khoản này chưa có mật khẩu nội bộ hoặc được tạo bằng đăng nhập ngoài.", [ex.Message]);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Login failed for email: {Email}.", request.Email);
+            return BadRequestResponse("Email hoặc mật khẩu không đúng.", [ex.Message]);
+        }
     }
     
     [HttpPost("logout")]
@@ -61,96 +74,58 @@ public class AuthController : BaseControllerAPI
     }
 
     [HttpPost("google-login")]
-    public async Task<IActionResult> GoogleLogin([FromBody] ExternalAuthRequest request)
+    public async Task<IActionResult> GoogleLogin(
+        [FromBody] ExternalAuthRequest request,
+        CancellationToken cancellationToken)
     {
         try
         {
             Logger.LogInformation("Google login attempt.");
-            
-            var googleClientId = _loginSettings.Google.ClientId;
-            if (string.IsNullOrEmpty(googleClientId))
-            {
-                Logger.LogError("Google client id is null or empty.");
-                return ErrorResponse(500, "Google ClientId is not configured.");
-            }
-            
-            // Verify Google ID token
-            var settings = new GoogleJsonWebSignature.ValidationSettings
-            {
-                Audience = new List<string> { googleClientId },
-            };
-            
-            var payload = await GoogleJsonWebSignature.ValidateAsync(request.AccessToken, settings);
-            
-            var result = await _authService.ExternalLoginAsync(
-                payload.Email,
-                payload.Name,
-                payload.Picture,
-                "Google"
-            );
-            
-            Logger.LogInformation($"Google login successful for email: {payload.Email}.");
+
+            var validator = HttpContext.RequestServices.GetRequiredService<IExternalAuthValidator>();
+            var identity = await validator.ValidateAsync("Google", request.AccessToken, cancellationToken);
+            var result = await _authService.ExternalLoginAsync(identity);
+
+            Logger.LogInformation("Google login successful for user {UserId}.", result.Id);
             return SuccessResponse(result, "Google login successful");
         }
-        catch (InvalidJwtException ex)
+        catch (ExternalAuthException ex)
         {
-            Logger.LogWarning($"Invalid Google token, error: {ex.Message}");
-            return BadRequestResponse("Invalid Google token.", [ex.Message]);
+            Logger.LogWarning("Google login rejected: {Reason}", ex.Message);
+            return ErrorResponse(ex.StatusCode, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Google login failed.");
+            return ErrorResponse(500, "Không thể đăng nhập bằng Google. Vui lòng thử lại.");
         }
     }
     
     [HttpPost("facebook-login")]
-    public async Task<IActionResult> FacebookLogin([FromBody] ExternalAuthRequest request)
+    public async Task<IActionResult> FacebookLogin(
+        [FromBody] ExternalAuthRequest request,
+        CancellationToken cancellationToken)
     {
         try
         {
             Logger.LogInformation("Facebook login attempt.");
 
-            var appId = _loginSettings.Facebook.AppId;
-            var appSecret = _loginSettings.Facebook.AppSecret;
+            var validator = HttpContext.RequestServices.GetRequiredService<IExternalAuthValidator>();
+            var identity = await validator.ValidateAsync("Facebook", request.AccessToken, cancellationToken);
+            var result = await _authService.ExternalLoginAsync(identity);
 
-            if (string.IsNullOrEmpty(appId) || string.IsNullOrEmpty(appSecret))
-            {
-                Logger.LogError("Facebook App credentials are not configured.");
-                return ErrorResponse(500, "Facebook App credentials are not configured.");
-            }
-
-            var httpClient = _httpClientFactory.CreateClient();
-
-            // Step 1: Verify token with Facebook Debug Token API
-            var debugTokenUrl = $"https://graph.facebook.com/debug_token?input_token={request.AccessToken}&access_token={appId}|{appSecret}";
-            var debugResponse = await httpClient.GetFromJsonAsync<FacebookDebugTokenResponse>(debugTokenUrl);
-
-            if (debugResponse?.Data == null || !debugResponse.Data.IsValid)
-            {
-                Logger.LogWarning("Invalid Facebook token.");
-                return BadRequestResponse("Invalid Facebook token.");
-            }
-
-            // Step 2: Get user info from Facebook Graph API
-            var userInfoUrl = $"https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token={request.AccessToken}";
-            var fbUser = await httpClient.GetFromJsonAsync<FacebookUserInfo>(userInfoUrl);
-
-            if (fbUser == null || string.IsNullOrEmpty(fbUser.Email))
-            {
-                Logger.LogWarning("Could not retrieve Facebook user info or email not granted.");
-                return BadRequestResponse("Could not retrieve Facebook user info. Make sure email permission is granted.");
-            }
-
-            var result = await _authService.ExternalLoginAsync(
-                fbUser.Email,
-                fbUser.Name ?? "Facebook User",
-                fbUser.Picture?.Data?.Url,
-                "Facebook"
-            );
-
-            Logger.LogInformation($"Facebook login successful for email: {fbUser.Email}.");
+            Logger.LogInformation("Facebook login successful for user {UserId}.", result.Id);
             return SuccessResponse(result, "Facebook login successful");
+        }
+        catch (ExternalAuthException ex)
+        {
+            Logger.LogWarning("Facebook login rejected: {Reason}", ex.Message);
+            return ErrorResponse(ex.StatusCode, ex.Message);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Facebook login failed.");
-            return ErrorResponse(500, "Facebook login failed.");
+            return ErrorResponse(500, "Không thể đăng nhập bằng Facebook. Vui lòng thử lại.");
         }
     }
     

@@ -293,6 +293,14 @@ namespace ReelShort.Infrastructure.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
 
+                    b.Property<string>("ExternalProvider")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ExternalSubject")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
                     b.Property<int>("FollowerCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -331,6 +339,10 @@ namespace ReelShort.Infrastructure.Migrations
 
                     b.HasIndex("Username")
                         .IsUnique();
+
+                    b.HasIndex("ExternalProvider", "ExternalSubject")
+                        .IsUnique()
+                        .HasFilter("\"ExternalProvider\" IS NOT NULL AND \"ExternalSubject\" IS NOT NULL");
 
                     b.ToTable("Users", (string)null);
                 });
@@ -373,10 +385,10 @@ namespace ReelShort.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
-                    b.Property<int>("Status")
+                    b.Property<byte>("Status")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(2);
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((byte)2);
 
                     b.Property<string>("ThumbnailUrl")
                         .HasColumnType("text");
@@ -509,6 +521,17 @@ namespace ReelShort.Infrastructure.Migrations
                     b.Navigation("Video");
                 });
 
+            modelBuilder.Entity("ReelShort.Domain.Entities.RefreshToken", b =>
+                {
+                    b.HasOne("ReelShort.Domain.Entities.User", "User")
+                        .WithMany("RefreshTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ReelShort.Domain.Entities.Video", b =>
                 {
                     b.HasOne("ReelShort.Domain.Entities.Music", "Music")
@@ -572,6 +595,8 @@ namespace ReelShort.Infrastructure.Migrations
                     b.Navigation("Followings");
 
                     b.Navigation("Likes");
+
+                    b.Navigation("RefreshTokens");
 
                     b.Navigation("Videos");
                 });

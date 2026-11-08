@@ -56,6 +56,11 @@ public static class ServiceExtensions
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         
         services.AddHttpClient();
+        services.AddHttpClient<IExternalAuthValidator, ExternalAuthValidator>(client =>
+        {
+            client.BaseAddress = new Uri("https://graph.facebook.com/");
+            client.Timeout = TimeSpan.FromSeconds(10);
+        }).RemoveAllLoggers();
         
         // Register Redis
         var redisConnection = configuration.GetConnectionString("RedisConnection") ?? "localhost:6379";

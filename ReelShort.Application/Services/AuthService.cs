@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using ReelShort.Application.Common.Exceptions;
 using ReelShort.Application.DTOs.Auth;
 using ReelShort.Application.Interfaces;
 using ReelShort.Domain.Entities;
@@ -103,6 +104,12 @@ public class AuthService : IAuthService
                 throw new Exception("[LoginAsync] Invalid email or password.");
             }
 
+            if (string.IsNullOrWhiteSpace(user.PasswordHash))
+            {
+                _logger.LogWarning("[LoginAsync] User {Email} does not have a local password hash.", request.Email);
+                throw new InvalidOperationException("[LoginAsync] This account does not support password login.");
+            }
+
             // Verify password
             if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
@@ -161,41 +168,55 @@ public class AuthService : IAuthService
         }
     }
 
-    public async Task<AuthResponse> ExternalLoginAsync(string email, string name, string? avatarUrl, string provider)
+    public async Task<AuthResponse> ExternalLoginAsync(ValidatedExternalIdentity identity)
     {
         try
         {
-            _logger.LogInformation($"[ExternalLoginAsync] Start to login with email: {email}, provider: {provider}.");
-            var user = await _userRepository.FirstOrDefaultAsync(u => u.Email == email);
+            _logger.LogInformation("[ExternalLoginAsync] Start external login for provider {Provider}.", identity.Provider);
+
+            var user = await _userRepository.FirstOrDefaultAsync(u => u.ExternalProvider == identity.Provider && u.ExternalSubject == identity.Subject);
             if (user == null)
             {
+                var normalizedEmail = identity.Email.ToUpperInvariant();
+                var emailOwner = await _userRepository.FirstOrDefaultAsync(u => u.Email.ToUpper() == normalizedEmail);
+                if (emailOwner != null)
+                {
+                    throw new ExternalAuthException("Email này đã thuộc về một tài khoản. Hãy đăng nhập bằng phương thức đã sử dụng trước đó.", 409);
+                }
+
                 user = new User
                 {
                     Id = Guid.NewGuid(),
-                    Username = email.Split('@')[0] + "_" + Guid.NewGuid().ToString("N")[..4],
-                    Email = email,
-                    DisplayName = name,
-                    AvatarUrl = avatarUrl,
+                    Username = BuildExternalUsername(identity.Email),
+                    Email = identity.Email,
+                    DisplayName = identity.Name,
+                    AvatarUrl = identity.AvatarUrl,
+                    ExternalProvider = identity.Provider,
+                    ExternalSubject = identity.Subject,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
-                    CreatedBy = provider,
-                    UpdatedBy = provider,
+                    CreatedBy = identity.Provider,
+                    UpdatedBy = identity.Provider,
                 };
                 
                 await _userRepository.AddAsync(user);
                 await _userRepository.SaveChangesAsync();
                 
-                _logger.LogInformation("[ExternalLoginAsync] Created new user from {Provider}: {UserId}", provider, user.Id);
+                _logger.LogInformation("[ExternalLoginAsync] Created new user from {Provider}: {UserId}", identity.Provider, user.Id);
             }
 
-            _logger.LogInformation($"[ExternalLoginAsync] End to login with email: {email}, provider: {provider}.");
+            _logger.LogInformation("[ExternalLoginAsync] External login completed for {Provider}, user {UserId}.", identity.Provider, user.Id);
             
             return await BuildAuthResponseAsync(user);
         }
+        catch (ExternalAuthException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            _logger.LogError($"[ExternalLoginAsync] Error: {ex.Message}", ex);
-            throw new Exception($"[ExternalLoginAsync] An error occurred during external login: {ex.Message}");
+            _logger.LogError(ex, "[ExternalLoginAsync] External login failed for {Provider}.", identity.Provider);
+            throw;
         }
     }
     
@@ -292,6 +313,18 @@ public class AuthService : IAuthService
         var hashBytes = SHA256.HashData(tokenBytes);
 
         return Convert.ToHexString(hashBytes);
+    }
+
+    private static string BuildExternalUsername(string email)
+    {
+        const int maxUsernameLength = 100;
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var localPart = email.Split('@', 2)[0];
+        var maxLocalLength = maxUsernameLength - suffix.Length - 1;
+        var safeLocalPart = localPart.Length > maxLocalLength
+            ? localPart[..maxLocalLength]
+            : localPart;
+        return $"{safeLocalPart}_{suffix}";
     }
     
     private async Task<AuthResponse> BuildAuthResponseAsync(User user)

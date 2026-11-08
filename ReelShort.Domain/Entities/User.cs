@@ -10,6 +10,8 @@ public class User : BaseEntity
     public string? DisplayName { get; set; }
     public string? AvatarUrl { get; set; }
     public string? Bio { get; set; }
+    public string? ExternalProvider { get; set; }
+    public string? ExternalSubject { get; set; }
     
     // Denormalized Fields
     public int FollowerCount { get; set; } = 0;
